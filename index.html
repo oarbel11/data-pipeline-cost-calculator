@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Pipeline Cost Calculator</title>
+<style>
+:root{color-scheme:light;--b:#e5e7eb;--m:#6b7280;--a:#2563eb;--g:#15803d}
+*{box-sizing:border-box}
+body{font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f8fafc;color:#111827}
+header{padding:16px 24px;background:#fff;border-bottom:1px solid var(--b)}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:0 0 8px}
+.sub{color:var(--m);font-size:12px}
+main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:16px;padding:16px 24px}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid var(--b);border-radius:10px;padding:14px;margin-bottom:12px}
+label{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:5px 0;font-size:13px}
+label span{color:#374151}
+input,select{width:170px;padding:5px 7px;border:1px solid #d1d5db;border-radius:6px;font:inherit;background:#fff}
+input[type=checkbox]{width:auto}
+button{background:var(--a);color:#fff;border:0;border-radius:8px;padding:10px 16px;font:600 14px system-ui;cursor:pointer;width:100%}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
+.kpi{background:#fff;border:1px solid var(--b);border-radius:10px;padding:12px}
+.kpi b{display:block;font-size:24px}.kpi small{color:var(--m)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--b);vertical-align:top}
+th{background:#f3f4f6;font-weight:600}
+td.n{text-align:right;white-space:nowrap}
+.calc{color:var(--m);font-size:12px}
+.sug{font-size:12px}.sug .save{color:var(--g);font-weight:600}
+.tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:9px;background:#eef2ff;color:#3730a3;margin-left:4px}
+.est{background:#fef3c7;color:#92400e}
+.ok{color:var(--g)}
+a{color:var(--a)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Data Pipeline Cost Calculator</h1>
+  <div class="sub">Estimate daily / monthly cost of each pipeline layer, see the math, and get cheaper alternatives per line. US-region on-demand list prices, researched Nov 2026 — <span class="tag est">est.</span> = low-confidence / contract-dependent price.</div>
+</header>
+<main>
+<section id="form"></section>
+<section>
+  <div class="kpis">
+    <div class="kpi"><small>Per day</small><b id="kDay">—</b></div>
+    <div class="kpi"><small>Per month (30.4 d)</small><b id="kMonth">—</b></div>
+    <div class="kpi"><small>Potential monthly saving (best per line)</small><b id="kSave" class="ok">—</b></div>
+  </div>
+  <div class="card"><h2>Line items &amp; suggestions</h2>
+    <table><thead><tr><th>Layer / choice</th><th>How it's calculated</th><th class="n">$/day</th><th class="n">$/month</th><th>Suggested alternatives</th></tr></thead><tbody id="rows"></tbody></table>
+  </div>
+  <div class="card sub" id="notes"></div>
+</section>
+</main>
+
+<script id="engine">
+// Cost engine + price catalog. Pure: no DOM. Tested by test.js.
+// ponytail: prices are static list prices; edit here to refresh (no live pricing API — AWS/GCP/Azure APIs need auth/CORS).
+const D = 30.4; // days per month
+const GiB = 1024;
+const tiered = (gb, tiers) => { let c = 0, left = gb, prev = 0; for (const [cap, r] of tiers) { const q = Math.min(left, cap - prev); if (q <= 0) break; c += q * r; left -= q; prev = cap; } return c; };
+const S = {
+  s3:'https://aws.amazon.com/s3/pricing/', gcs:'https://cloud.google.com/storage/pricing', blob:'https://azure.microsoft.com/pricing/details/storage/blobs/',
+  glue:'https://aws.amazon.com/glue/pricing/', emr:'https://aws.amazon.com/emr/pricing/', dataproc:'https://cloud.google.com/dataproc-serverless/pricing',
+  dbx:'https://www.databricks.com/product/pricing', snow:'https://www.snowflake.com/pricing/', bq:'https://cloud.google.com/bigquery/pricing',
+  rs:'https://aws.amazon.com/redshift/pricing/', athena:'https://aws.amazon.com/athena/pricing/', synapse:'https://azure.microsoft.com/pricing/details/synapse-analytics/',
+  kin:'https://aws.amazon.com/kinesis/data-streams/pricing/', msk:'https://aws.amazon.com/msk/pricing/', pubsub:'https://cloud.google.com/pubsub/pricing', eh:'https://azure.microsoft.com/pricing/details/event-hubs/',
+  ft:'https://fivetran.com/pricing', ab:'https://airbyte.com/pricing', adf:'https://azure.microsoft.com/pricing/details/data-factory/', ds:'https://aws.amazon.com/datasync/pricing/',
+  mwaa:'https://aws.amazon.com/managed-workflows-for-apache-airflow/pricing/', comp:'https://cloud.google.com/composer/pricing', astro:'https://www.astronomer.io/pricing/', sfn:'https://aws.amazon.com/step-functions/pricing/', eb:'https://aws.amazon.com/eventbridge/pricing/',
+  lambda:'https://aws.amazon.com/lambda/pricing/', run:'https://cloud.google.com/run/pricing', func:'https://azure.microsoft.com/pricing/details/functions/', fargate:'https://aws.amazon.com/fargate/pricing/', ec2:'https://aws.amazon.com/ec2/pricing/on-demand/',
+  cw:'https://aws.amazon.com/cloudwatch/pricing/', gcl:'https://cloud.google.com/stackdriver/pricing', la:'https://azure.microsoft.com/pricing/details/monitor/',
+  dto:'https://aws.amazon.com/ec2/pricing/on-demand/#Data_Transfer', gcpnet:'https://cloud.google.com/vpc/network-pricing', aznet:'https://azure.microsoft.com/pricing/details/bandwidth/'
+};
+const EC2 = { 'm5.xlarge':0.192, 't3.large':0.0832 }; // $/hr us-east-1 on-demand
+
+// Derived quantities shared by all layers.
+function derive(I) {
+  const gbDay = I.tbDay * GiB;
+  const tput = { light: 50, medium: 15, heavy: 5 }[I.complexity];   // GB processed per vCPU-hour
+  const scan = { light: 1, medium: 2, heavy: 4 }[I.complexity];     // TB scanned per TB ingested (SQL engines)
+  const storedGB = gbDay / I.compression * I.copies * I.retention;  // steady-state lake size
+  const readGB = gbDay / I.compression;                             // new data read back once per day
+  const vcpuH = gbDay / tput;
+  const rows = gbDay * GiB ** 3 / I.rowBytes;                       // rows ingested per day
+  const streamGB = gbDay * I.streamPct / 100;
+  const whGB = storedGB / I.copies * I.curatedPct / 100;
+  return { gbDay, tput, scan, storedGB, readGB, vcpuH, rows, streamGB, whGB };
+}
+const f = (n, d = 0) => n.toLocaleString('en-US', { maximumFractionDigits: d });
+
+// Each option: cost(I, X) -> { day, calc }. cloud: aws|gcp|azure|any.
+const CATALOG = [
+ { id:'ingest', label:'1. Ingestion (batch / CDC)', options:[
+  { id:'custom', name:'Custom ingestion jobs (in Processing layer)', cloud:'any', src:null,
+    cost:()=>({day:0, calc:'Extraction code runs on the Processing compute selected below'}), tip:'Cheapest at TB scale, but you own retries, schema drift and CDC logic.' },
+  { id:'fivetran', name:'Fivetran (MAR-based)', cloud:'any', est:true, src:S.ft,
+    cost:(I,X)=>{const mar=X.rows*D/1e6; const m=mar*1.25; return {day:m/D, calc:`${f(mar)} M MAR/mo (append-only) × $1.25/M (high-volume list; small volumes up to ~$500/M; contract-dependent)`};}, tip:'Price scales with rows changed. Negotiate volume tiers or move high-volume tables to custom/CDC.' },
+  { id:'airbyte', name:'Airbyte Cloud (DB source, credits)', cloud:'any', est:true, src:S.ab,
+    cost:(I,X)=>({day:X.gbDay*10, calc:`${f(X.gbDay)} GB/day × $10/GB (4 credits × $2.50)`}), tip:'Volume pricing is punitive at TB/day — use a capacity plan or self-host OSS.' },
+  { id:'airbyteoss', name:'Airbyte OSS self-hosted (2× m5.xlarge)', cloud:'any', est:true, src:S.ec2,
+    cost:(I,X)=>{const n=Math.max(2,Math.ceil(X.gbDay/2000)); return {day:n*EC2['m5.xlarge']*24, calc:`${n} × m5.xlarge × $0.192/hr × 24h`};}, tip:'Cheap compute, but you run upgrades and on-call.' },
+  { id:'adf', name:'Azure Data Factory Copy activity', cloud:'azure', src:S.adf,
+    cost:(I,X)=>{const diu=X.gbDay/50; return {day:diu*0.25+I.runsDay*I.steps/1000, calc:`${f(diu,1)} DIU-h (≈50 GB/DIU-h) × $0.25 + ${f(I.runsDay*I.steps)} activity runs × $1/1k`};}, tip:'Tune DIUs/parallel copies; use self-hosted IR ($0.10/hr) for on-prem sources.' },
+  { id:'datasync', name:'AWS DataSync (file/object transfer)', cloud:'aws', src:S.ds,
+    cost:(I,X)=>({day:X.gbDay*0.0125, calc:`${f(X.gbDay)} GB × $0.0125/GB`}), tip:'Only for files/objects, not databases. Use DMS for DB CDC.' },
+ ]},
+ { id:'stream', label:'2. Streaming (share of data that is real-time)', options:[
+  { id:'kinesis', name:'Kinesis Data Streams on-demand (Standard)', cloud:'aws', src:S.kin,
+    cost:(I,X)=>({day:X.streamGB*(0.08+0.04)+(X.streamGB?0.04*24:0), calc:`${f(X.streamGB)} GB × ($0.08 in + $0.04 out) + $0.04/stream-hr`}), tip:'On-demand Advantage cuts ingest to $0.032/GB for steady high volume.' },
+  { id:'kinesisadv', name:'Kinesis on-demand Advantage', cloud:'aws', src:S.kin,
+    cost:(I,X)=>({day:X.streamGB*(0.032+0.016), calc:`${f(X.streamGB)} GB × ($0.032 in + $0.016 out)`}), tip:'Best Kinesis rate for sustained volume; check the account-level commitment terms.' },
+  { id:'msk', name:'Amazon MSK Serverless', cloud:'aws', est:true, src:S.msk,
+    cost:(I,X)=>({day:X.streamGB?0.75*24+X.streamGB*(0.10+0.05)+50*0.0015*24:0, calc:`$0.75/cluster-hr + ${f(X.streamGB)} GB × ($0.10 in + $0.05 out) + 50 partitions × $0.0015/hr`}), tip:'Kafka API compatibility; fixed cluster-hour makes it expensive at low volume.' },
+  { id:'kafkaec2', name:'Self-managed Kafka (3+ m5.xlarge)', cloud:'any', est:true, src:S.ec2,
+    cost:(I,X)=>{if(!X.streamGB)return{day:0,calc:'no streaming'};const n=Math.max(3,Math.ceil(X.streamGB/2000));return{day:n*EC2['m5.xlarge']*24*1.2, calc:`${n} brokers × $0.192/hr × 24h × 1.2 (EBS)`};}, tip:'Lowest unit cost at scale; highest ops burden.' },
+  { id:'pubsub', name:'Google Pub/Sub', cloud:'gcp', src:S.pubsub,
+    cost:(I,X)=>({day:2*X.streamGB/GiB*40, calc:`${f(X.streamGB)} GB × 2 (publish + deliver) ÷ 1024 × $40/TiB`}), tip:'Pub/Sub Lite / BigQuery subscriptions avoid separate consumer compute.' },
+  { id:'eventhubs', name:'Azure Event Hubs Standard', cloud:'azure', src:S.eh,
+    cost:(I,X)=>{if(!X.streamGB)return{day:0,calc:'no streaming'};const tu=Math.ceil(X.streamGB/84.4), ev=X.streamGB*GiB**3/I.rowBytes/1e6; return {day:tu*0.03*24+ev*0.028, calc:`${tu} TU × $0.03/hr × 24 + ${f(ev)} M events × $0.028/M`};}, tip:'Batch small events to cut per-event charges.' },
+ ]},
+ { id:'storage', label:'3. Data lake storage', options:[
+  { id:'s3std', name:'S3 Standard', cloud:'aws', src:S.s3,
+    cost:(I,X)=>({day:tiered(X.storedGB,[[51200,0.023],[512000,0.022],[Infinity,0.021]])/D, calc:`${f(X.storedGB)} GB steady-state × $0.023→0.021/GB-mo (tiered)`}), tip:'Add lifecycle rules or Intelligent-Tiering for data older than 30 days.' },
+  { id:'s3it', name:'S3 Intelligent-Tiering', cloud:'aws', src:S.s3,
+    cost:(I,X)=>{const r=I.retention,hot=Math.min(r,30)/r,ia=Math.max(0,Math.min(r,90)-30)/r,ar=Math.max(0,r-90)/r; const rate=hot*0.023+ia*0.0125+ar*0.004; const mon=X.storedGB/0.128/1000*0.0025; return {day:(X.storedGB*rate+mon)/D, calc:`${f(X.storedGB)} GB × blended $${rate.toFixed(4)}/GB-mo (${f(hot*100)}% frequent / ${f(ia*100)}% IA / ${f(ar*100)}% archive-instant) + monitoring`};}, tip:'Hands-off tiering; good default for mixed access patterns.' },
+  { id:'s3ia', name:'S3 Standard-IA', cloud:'aws', src:S.s3,
+    cost:(I,X)=>({day:X.storedGB*0.0125/D+X.readGB*0.01, calc:`${f(X.storedGB)} GB × $0.0125/GB-mo + ${f(X.readGB)} GB/day read × $0.01 retrieval`}), tip:'30-day minimum; retrieval fees hurt if data is re-read often.' },
+  { id:'s3gir', name:'S3 Glacier Instant Retrieval', cloud:'aws', src:S.s3,
+    cost:(I,X)=>({day:X.storedGB*0.004/D+X.readGB*0.03, calc:`${f(X.storedGB)} GB × $0.004/GB-mo + ${f(X.readGB)} GB/day × $0.03 retrieval`}), tip:'Archive tier — only for rarely-read history; 90-day minimum.' },
+  { id:'gcsstd', name:'GCS Standard (regional)', cloud:'gcp', src:S.gcs,
+    cost:(I,X)=>({day:X.storedGB*0.020/D, calc:`${f(X.storedGB)} GB × $0.020/GB-mo`}), tip:'Enable Autoclass to auto-move cold objects with no retrieval fees.' },
+  { id:'gcsnl', name:'GCS Nearline', cloud:'gcp', src:S.gcs,
+    cost:(I,X)=>({day:X.storedGB*0.010/D+X.readGB*0.01, calc:`${f(X.storedGB)} GB × $0.010/GB-mo + ${f(X.readGB)} GB/day × $0.01 retrieval`}), tip:'30-day minimum storage.' },
+  { id:'gcscl', name:'GCS Coldline', cloud:'gcp', src:S.gcs,
+    cost:(I,X)=>({day:X.storedGB*0.004/D+X.readGB*0.02, calc:`${f(X.storedGB)} GB × $0.004/GB-mo + ${f(X.readGB)} GB/day × $0.02 retrieval`}), tip:'90-day minimum storage.' },
+  { id:'azhot', name:'Azure Blob / ADLS Hot (LRS)', cloud:'azure', src:S.blob,
+    cost:(I,X)=>({day:X.storedGB*0.018/D, calc:`${f(X.storedGB)} GB × $0.018/GB-mo`}), tip:'Lifecycle-manage to Cool after 30 days.' },
+  { id:'azcool', name:'Azure Blob Cool (LRS)', cloud:'azure', src:S.blob,
+    cost:(I,X)=>({day:X.storedGB*0.010/D+X.readGB*0.01, calc:`${f(X.storedGB)} GB × $0.010/GB-mo + ${f(X.readGB)} GB/day × $0.01 retrieval`}), tip:'30-day minimum; 128 KiB min billable object from Jul 2026.' },
+  { id:'azcold', name:'Azure Blob Cold (LRS)', cloud:'azure', est:true, src:S.blob,
+    cost:(I,X)=>({day:X.storedGB*0.0045/D+X.readGB*0.03, calc:`${f(X.storedGB)} GB × $0.0045/GB-mo + ${f(X.readGB)} GB/day × $0.03 retrieval`}), tip:'90-day minimum storage.' },
+ ]},
+ { id:'compute', label:'4. Processing / transformation', options:[
+  { id:'glue', name:'AWS Glue Spark (5.x)', cloud:'aws', src:S.glue,
+    cost:(I,X)=>{const d=X.vcpuH/4;return{day:d*0.44, calc:`${f(X.gbDay)} GB ÷ ${X.tput} GB/vCPU-h = ${f(X.vcpuH,1)} vCPU-h ÷ 4 = ${f(d,1)} DPU-h × $0.44`};}, tip:'Upgrade to Glue 6.0 ($0.308) or use Flex ($0.29) for non-urgent jobs.' },
+  { id:'glue6', name:'AWS Glue 6.0 Spark', cloud:'aws', src:S.glue,
+    cost:(I,X)=>{const d=X.vcpuH/4;return{day:d*0.308, calc:`${f(d,1)} DPU-h × $0.308`};}, tip:'30% cheaper than Glue 5.x — requires migrating job version.' },
+  { id:'glueflex', name:'AWS Glue Flex', cloud:'aws', src:S.glue,
+    cost:(I,X)=>{const d=X.vcpuH/4;return{day:d*0.29, calc:`${f(d,1)} DPU-h × $0.29`};}, tip:'Delayed start; fine for batch SLAs measured in hours.' },
+  { id:'emrsls', name:'EMR Serverless', cloud:'aws', est:true, src:S.emr,
+    cost:(I,X)=>({day:X.vcpuH*(0.052624+4*0.0057785), calc:`${f(X.vcpuH,1)} vCPU-h × ($0.0526 vCPU + 4 GB × $0.00578)`}), tip:'Use Graviton (ARM) for ~20% lower rates.' },
+  { id:'emrspot', name:'EMR on EC2 (Spot, m5.xlarge)', cloud:'aws', est:true, src:S.emr,
+    cost:(I,X)=>{const nh=X.vcpuH/4;return{day:nh*(0.192*0.35+0.048), calc:`${f(nh,1)} node-h × ($0.192 EC2 × 35% spot + $0.048 EMR fee)`};}, tip:'Cheapest Spark on AWS; needs interruption-tolerant jobs.' },
+  { id:'dataproc', name:'GCP Serverless for Apache Spark', cloud:'gcp', src:S.dataproc,
+    cost:(I,X)=>({day:X.vcpuH*1.0*0.06, calc:`${f(X.vcpuH,1)} vCPU-h × 1 DCU (0.6 vCPU + 4 GB × 0.1) × $0.06`}), tip:'Premium tier ($0.089) only if you need faster shuffle.' },
+  { id:'dbxjobs', name:'Databricks Jobs (classic) + EC2', cloud:'any', est:true, src:S.dbx,
+    cost:(I,X)=>({day:X.vcpuH*(0.25*0.15+0.048), calc:`${f(X.vcpuH,1)} vCPU-h × (0.25 DBU × $0.15 + $0.048 EC2)`}), tip:'Use Spot workers and Jobs (not All-Purpose) clusters.' },
+  { id:'dbxsls', name:'Databricks Jobs Serverless', cloud:'any', est:true, src:S.dbx,
+    cost:(I,X)=>({day:X.vcpuH*0.25*0.35, calc:`${f(X.vcpuH,1)} vCPU-h × 0.25 DBU × $0.35 (compute bundled)`}), tip:'No cluster idle time; check DBU burn in system tables.' },
+  { id:'snowstd', name:'Snowflake (Standard, $2/credit)', cloud:'any', src:S.snow,
+    cost:(I,X)=>{const cr=X.vcpuH/8;return{day:cr*2, calc:`${f(X.vcpuH,1)} vCPU-h ÷ 8 ≈ ${f(cr,1)} credits × $2`};}, tip:'Auto-suspend 60s; right-size warehouses per job.' },
+  { id:'snowent', name:'Snowflake (Enterprise, $3/credit)', cloud:'any', src:S.snow,
+    cost:(I,X)=>{const cr=X.vcpuH/8;return{day:cr*3, calc:`${f(cr,1)} credits × $3`};}, tip:'Only pay Enterprise if you need multi-cluster / 90-day time travel.' },
+  { id:'bq', name:'BigQuery on-demand (ELT SQL)', cloud:'gcp', src:S.bq,
+    cost:(I,X)=>{const t=X.gbDay*X.scan/GiB;return{day:t*6.25, calc:`${f(t,2)} TiB scanned (${X.scan}× ingest) × $6.25/TiB`};}, tip:'Partition + cluster tables; switch to Editions slots past ~300-500 TiB/mo.' },
+  { id:'athena', name:'Athena (CTAS / ELT SQL)', cloud:'aws', src:S.athena,
+    cost:(I,X)=>{const t=X.gbDay*X.scan/GiB;return{day:t*5, calc:`${f(t,2)} TB scanned × $5/TB`};}, tip:'Parquet + partitions cut scanned bytes 5-10×.' },
+  { id:'adfflow', name:'Azure Data Factory Data Flows', cloud:'azure', src:S.adf,
+    cost:(I,X)=>({day:X.vcpuH*0.274, calc:`${f(X.vcpuH,1)} vCore-h × $0.274`}), tip:'Expensive per vCore; Databricks/Synapse Spark usually cheaper.' },
+  { id:'fargate', name:'Python on ECS Fargate', cloud:'aws', src:S.fargate,
+    cost:(I,X)=>({day:X.vcpuH*(0.04048+2*0.004445), calc:`${f(X.vcpuH,1)} vCPU-h × ($0.0405 + 2 GB × $0.00445)`}), tip:'Cheap for single-node pandas/Polars/DuckDB jobs that fit in memory.' },
+ ]},
+ { id:'scripts', label:'5. Scripts / micro-tasks (functions)', options:[
+  { id:'lambda', name:'AWS Lambda (x86)', cloud:'aws', src:S.lambda,
+    cost:(I)=>{const gbs=I.inv*I.sec*I.mem;return{day:gbs*0.0000166667+I.inv*0.2/1e6, calc:`${f(gbs)} GB-s × $0.0000166667 + ${f(I.inv)} req × $0.20/M`};}, tip:'Switch to Arm/Graviton for 20% off.' },
+  { id:'lambdaarm', name:'AWS Lambda (Arm)', cloud:'aws', src:S.lambda,
+    cost:(I)=>{const gbs=I.inv*I.sec*I.mem;return{day:gbs*0.0000133334+I.inv*0.2/1e6, calc:`${f(gbs)} GB-s × $0.0000133334 + req`};}, tip:'Best Lambda price; most Python libs support arm64.' },
+  { id:'cloudrun', name:'Cloud Run functions (1 vCPU)', cloud:'gcp', src:S.run,
+    cost:(I)=>{const s=I.inv*I.sec;return{day:s*0.000024+s*I.mem*0.0000025+I.inv*0.4/1e6, calc:`${f(s)} vCPU-s × $0.000024 + GB-s × $0.0000025 + $0.40/M req`};}, tip:'Raise concurrency per instance to share CPU.' },
+  { id:'azfunc', name:'Azure Functions (Consumption)', cloud:'azure', src:S.func,
+    cost:(I)=>{const gbs=I.inv*I.sec*I.mem;return{day:gbs*0.000016+I.inv*0.2/1e6, calc:`${f(gbs)} GB-s × $0.000016 + $0.20/M req`};}, tip:'Flex Consumption plan for VNet + faster cold starts.' },
+  { id:'fargatew', name:'Always-on Fargate worker (1 vCPU/2 GB)', cloud:'aws', src:S.fargate,
+    cost:(I)=>{const n=Math.max(1,Math.ceil(I.inv*I.sec/86400/0.8));return{day:n*(0.04048+2*0.004445)*24, calc:`${n} task(s) × $0.0494/hr × 24h`};}, tip:'Wins over Lambda once utilisation is high and steady.' },
+ ]},
+ { id:'orch', label:'6. Orchestration', options:[
+  { id:'mwaas', name:'Amazon MWAA Small', cloud:'aws', src:S.mwaa,
+    cost:()=>({day:0.49*24, calc:'$0.49/env-hr × 24h (bills while idle; workers extra)'}), tip:'Fixed cost dominates at low DAG counts.' },
+  { id:'mwaal', name:'Amazon MWAA Large', cloud:'aws', src:S.mwaa,
+    cost:()=>({day:0.99*24, calc:'$0.99/env-hr × 24h'}), tip:'Only needed for hundreds of DAGs / high parallelism.' },
+  { id:'composer', name:'Cloud Composer 3 (small)', cloud:'gcp', est:true, src:S.comp,
+    cost:()=>({day:6*0.06*24, calc:'≈6 DCU × $0.06/DCU-hr × 24h'}), tip:'Scale workers to zero between runs.' },
+  { id:'astro', name:'Astronomer Astro (small deployment)', cloud:'any', est:true, src:S.astro,
+    cost:()=>({day:0.35*24, calc:'≈$0.35/deployment-hr × 24h'}), tip:'Managed Airflow on any cloud; check plan minimums.' },
+  { id:'airflowec2', name:'Self-hosted Airflow (2× t3.large + small DB)', cloud:'any', est:true, src:S.ec2,
+    cost:()=>({day:(2*EC2['t3.large']+0.018)*24, calc:'(2 × $0.0832 + $0.018 db) × 24h'}), tip:'Cheapest Airflow; you own upgrades and HA.' },
+  { id:'sfn', name:'AWS Step Functions (Standard)', cloud:'aws', src:S.sfn,
+    cost:(I)=>{const t=I.runsDay*I.steps;return{day:t*0.025/1000, calc:`${f(t)} state transitions × $0.025/1k`};}, tip:'Pay-per-use; great for event-driven pipelines without Airflow.' },
+  { id:'adforch', name:'Azure Data Factory pipelines', cloud:'azure', src:S.adf,
+    cost:(I)=>{const t=I.runsDay*I.steps;return{day:t/1000, calc:`${f(t)} activity runs × $1/1k`};}, tip:'Cheap orchestration if you are already on Azure.' },
+  { id:'cron', name:'EventBridge / Cloud Scheduler (cron)', cloud:'any', src:S.eb,
+    cost:(I)=>({day:I.runsDay/1e6, calc:`${f(I.runsDay)} invocations × $1/M`}), tip:'Near-free, but no dependencies, retries UI or lineage.' },
+ ]},
+ { id:'wh', label:'7. Warehouse / serving', options:[
+  { id:'none', name:'Query the lake directly (Athena)', cloud:'aws', src:S.athena,
+    cost:(I)=>({day:I.queryTb*5, calc:`${f(I.queryTb,2)} TB scanned/day × $5/TB`}), tip:'No storage duplication; performance depends on file layout.' },
+  { id:'bqwh', name:'BigQuery (on-demand)', cloud:'gcp', src:S.bq,
+    cost:(I,X)=>({day:X.whGB*0.02/D+I.queryTb*0.9095*6.25, calc:`${f(X.whGB)} GB × $0.02/GB-mo + ${f(I.queryTb,2)} TB/day × $6.25/TiB`}), tip:'Long-term storage drops to $0.01/GB after 90 days untouched.' },
+  { id:'snowwh', name:'Snowflake Enterprise (Medium WH)', cloud:'any', src:S.snow,
+    cost:(I,X)=>({day:X.whGB/GiB*23/D+I.whHours*4*3, calc:`${f(X.whGB/GiB,1)} TB × $23/TB-mo + ${I.whHours} h × 4 credits × $3`}), tip:'Auto-suspend + Standard edition can cut ~33%.' },
+  { id:'rss', name:'Redshift Serverless (8 RPU base)', cloud:'aws', src:S.rs,
+    cost:(I,X)=>({day:X.whGB*0.024/D+I.whHours*8*0.375, calc:`${f(X.whGB)} GB × $0.024/GB-mo + ${I.whHours} h × 8 RPU × $0.375`}), tip:'Set max RPU limits; reserved capacity for steady use.' },
+  { id:'dbxsql', name:'Databricks SQL Serverless (Small)', cloud:'any', est:true, src:S.dbx,
+    cost:(I,X)=>({day:X.whGB*0.023/D+I.whHours*12*0.70, calc:`${f(X.whGB)} GB lake × $0.023 + ${I.whHours} h × 12 DBU × $0.70`}), tip:'2X-Small (4 DBU/hr) is often enough for BI dashboards.' },
+  { id:'synsls', name:'Synapse serverless SQL', cloud:'azure', est:true, src:S.synapse,
+    cost:(I)=>({day:I.queryTb*5, calc:`${f(I.queryTb,2)} TB scanned/day × $5/TB`}), tip:'Same pay-per-scan model as Athena; optimise Parquet layout.' },
+ ]},
+ { id:'net', label:'8. Data transfer (egress)', options:[
+  { id:'aws', name:'AWS egress', cloud:'aws', src:S.dto,
+    cost:(I)=>({day:I.egressGb*0.09+I.xregionGb*0.02, calc:`${f(I.egressGb)} GB internet × $0.09 + ${f(I.xregionGb)} GB cross-region × $0.02`}), tip:'Keep consumers in-region; use CloudFront or VPC endpoints.' },
+  { id:'gcp', name:'GCP egress (Premium tier)', cloud:'gcp', est:true, src:S.gcpnet,
+    cost:(I)=>({day:I.egressGb*0.12+I.xregionGb*0.02, calc:`${f(I.egressGb)} GB × $0.12 + ${f(I.xregionGb)} GB × $0.02`}), tip:'Standard network tier is cheaper for internet egress.' },
+  { id:'azure', name:'Azure egress', cloud:'azure', est:true, src:S.aznet,
+    cost:(I)=>({day:I.egressGb*0.087+I.xregionGb*0.02, calc:`${f(I.egressGb)} GB × $0.087 + ${f(I.xregionGb)} GB × $0.02`}), tip:'Routing preference "internet" lowers egress rates.' },
+ ]},
+ { id:'mon', label:'9. Monitoring / logs', options:[
+  { id:'cw', name:'CloudWatch Logs', cloud:'aws', src:S.cw,
+    cost:(I)=>({day:I.logsGb*0.5+I.logsGb*30*0.03/D, calc:`${f(I.logsGb)} GB/day × $0.50 ingest + 30-day storage × $0.03/GB-mo`}), tip:'Infrequent Access log class ($0.25/GB) for debug logs.' },
+  { id:'gcl', name:'Google Cloud Logging', cloud:'gcp', src:S.gcl,
+    cost:(I)=>({day:Math.max(0,I.logsGb*D-50)*0.5/D, calc:`(${f(I.logsGb*D)} GiB/mo − 50 free) × $0.50`}), tip:'Exclusion filters drop noisy logs before ingestion.' },
+  { id:'la', name:'Azure Log Analytics (Analytics logs)', cloud:'azure', est:true, src:S.la,
+    cost:(I)=>({day:I.logsGb*2.3, calc:`${f(I.logsGb)} GB/day × $2.30`}), tip:'Basic logs tier (~$0.50/GB) for high-volume pipeline logs.' },
+  { id:'loki', name:'Self-hosted Grafana Loki on object storage', cloud:'any', est:true, src:S.ec2,
+    cost:(I)=>({day:EC2['t3.large']*24+I.logsGb*30*0.023/D, calc:'1 × t3.large × 24h + 30 days logs on S3'}), tip:'Cheapest at high log volume; you run it.' },
+ ]},
+];
+
+function compute(I, choice) {
+  const X = derive(I);
+  const lines = CATALOG.map(cat => {
+    const all = cat.options.map(o => ({ o, ...o.cost(I, X) }));
+    const sel = all.find(a => a.o.id === choice[cat.id]) || all[0];
+    const pool = I.sameCloud ? all.filter(a => a.o.cloud === sel.o.cloud || a.o.cloud === 'any') : all;
+    const cheaper = pool.filter(a => a !== sel && a.day < sel.day - 1e-9).sort((a, b) => a.day - b.day).slice(0, 2);
+    return { cat, sel, cheaper };
+  });
+  const day = lines.reduce((s, l) => s + l.sel.day, 0);
+  const save = lines.reduce((s, l) => s + (l.cheaper[0] ? l.sel.day - l.cheaper[0].day : 0), 0);
+  return { X, lines, day, month: day * D, saveMonth: save * D };
+}
+if (typeof module !== 'undefined') module.exports = { CATALOG, compute, derive, tiered };
+</script>
+
+<script>
+const FIELDS = [
+  ['Volume & data', [
+    ['tbDay','Data ingested per day (TB)',1,0.01],['retention','Lake retention (days)',90,1],['compression','Compression ratio (raw → Parquet)',3,1],
+    ['copies','Copies stored (raw + curated…)',1.5,1],['rowBytes','Avg row/event size (bytes)',500,10],
+    ['complexity','Transform complexity',['light','medium','heavy'],'medium'],['streamPct','% of data via streaming',0,0]]],
+  ['Jobs & orchestration', [['runsDay','Pipeline runs per day',24,1],['steps','Tasks per run',10,1]]],
+  ['Scripts / functions', [['inv','Invocations per day',10000,0],['sec','Avg duration (s)',5,0.1],['mem','Memory (GB)',0.5,0.128]]],
+  ['Warehouse & serving', [['curatedPct','% of lake loaded to warehouse',30,0],['queryTb','BI/analyst TB scanned per day',1,0],['whHours','Warehouse active hours/day',8,0]]],
+  ['Network & ops', [['egressGb','Internet egress GB/day',50,0],['xregionGb','Cross-region GB/day',0,0],['logsGb','Logs GB/day',5,0]]],
+];
+const DEF = { ingest:'fivetran', stream:'kinesis', storage:'s3std', compute:'glue', scripts:'lambda', orch:'mwaas', wh:'snowwh', net:'aws', mon:'cw' };
+const $ = id => document.getElementById(id);
+const usd = n => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+let h = '';
+for (const [title, fs] of FIELDS) {
+  h += `<div class="card"><h2>${title}</h2>`;
+  for (const [id, lbl, def, min] of fs) h += Array.isArray(def)
+    ? `<label><span>${lbl}</span><select id="${id}">${def.map(v => `<option${v === min ? ' selected' : ''}>${v}</option>`).join('')}</select></label>`
+    : `<label><span>${lbl}</span><input id="${id}" type="number" step="any" min="${min}" value="${def}" required></label>`;
+  h += '</div>';
+}
+h += '<div class="card"><h2>Pipeline choices</h2>';
+for (const c of CATALOG) h += `<label><span>${c.label.replace(/^\d+\. /, '')}</span><select id="c_${c.id}">${c.options.map(o => `<option value="${o.id}"${o.id === DEF[c.id] ? ' selected' : ''}>${o.name}</option>`).join('')}</select></label>`;
+h += '<label><span>Suggest same-cloud options only</span><input id="sameCloud" type="checkbox"></label></div><button id="go">Calculate</button>';
+$('form').innerHTML = h;
+
+function run() {
+  const I = {}, choice = {};
+  for (const [, fs] of FIELDS) for (const [id, , def, min] of fs) {
+    const el = $(id);
+    if (Array.isArray(def)) { I[id] = el.value; continue; }
+    const v = Number(el.value);
+    if (!Number.isFinite(v) || v < min) { el.style.borderColor = '#dc2626'; el.focus(); return; }
+    el.style.borderColor = ''; I[id] = v;
+  }
+  I.sameCloud = $('sameCloud').checked;
+  for (const c of CATALOG) choice[c.id] = $('c_' + c.id).value;
+  const R = compute(I, choice);
+  $('kDay').textContent = usd(R.day); $('kMonth').textContent = usd(R.month); $('kSave').textContent = usd(R.saveMonth);
+  const tag = o => `<span class="tag">${o.cloud}</span>${o.est ? '<span class="tag est">est.</span>' : ''}`;
+  $('rows').innerHTML = R.lines.map(({ cat, sel, cheaper }) => `<tr>
+    <td><b>${cat.label}</b><br>${sel.o.name}${tag(sel.o)}${sel.o.src ? ` <a href="${sel.o.src}" target="_blank" rel="noopener">src</a>` : ''}</td>
+    <td class="calc">${sel.calc}</td><td class="n">${usd(sel.day)}</td><td class="n">${usd(sel.day * 30.4)}</td>
+    <td class="sug">${cheaper.length ? cheaper.map(a => `• ${a.o.name}${tag(a.o)} — ${usd(a.day * 30.4)}/mo <span class="save">save ${usd((sel.day - a.day) * 30.4)}/mo (${Math.round((1 - a.day / (sel.day || 1)) * 100)}%)</span><br><span class="calc">${a.o.tip}</span>`).join('<br>')
+      : `<span class="ok">✓ Cheapest option in this layer</span>`}<br><span class="calc">Tip: ${sel.o.tip}</span></td></tr>`).join('');
+  const X = R.X;
+  $('notes').innerHTML = `<b>Assumptions:</b> ${X.gbDay.toLocaleString()} GB/day ingested; steady-state lake ≈ ${Math.round(X.storedGB).toLocaleString()} GB; processing ≈ ${X.vcpuH.toFixed(1)} vCPU-h/day at ${X.tput} GB/vCPU-h (${I.complexity}); ${Math.round(X.rows / 1e6).toLocaleString()} M rows/day; month = 30.4 days.
+   Prices are US-region on-demand list prices (no free tiers, discounts or commitments), researched Nov 2026 from vendor pages and pricing guides — verify on the linked pages before committing budget. Suggestions may cross clouds; tick "same-cloud" to avoid egress/migration trade-offs.`;
+}
+$('go').onclick = run;
+document.querySelectorAll('#form input,#form select').forEach(e => e.addEventListener('change', run));
+run();
+</script>
+</body>
+</html>
