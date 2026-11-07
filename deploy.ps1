@@ -1,6 +1,8 @@
 # One-shot deploy: GitHub repo + GitHub Pages + custom domain.
 # Usage:  powershell -ExecutionPolicy Bypass -File deploy.ps1 -Domain yourdomain.com
-param([Parameter(Mandatory)][string]$Domain)
+#         -Domain is optional: omit it to go live on https://<user>.github.io/data-pipeline-cost-calculator/ now, add the domain later with:
+#         gh api -X PUT repos/<user>/data-pipeline-cost-calculator/pages -f cname=yourdomain.com
+param([string]$Domain = '')
 $ErrorActionPreference = 'Stop'
 $name = 'data-pipeline-cost-calculator'
 $dst  = Join-Path $HOME "Projects\$name"
@@ -29,11 +31,14 @@ gh repo create $name --public --source . --remote origin --push
 
 # 5. Enable Pages (GitHub Actions build) + custom domain, then deploy
 gh api -X POST "repos/$user/$name/pages" -f build_type=workflow | Out-Null
-gh api -X PUT  "repos/$user/$name/pages" -f cname=$Domain | Out-Null
+if ($Domain) { gh api -X PUT "repos/$user/$name/pages" -f cname=$Domain | Out-Null }
 gh workflow run pages.yml --ref main
 
-# 6. DNS records to add at your registrar
 Write-Host "`nDONE. Repo: https://github.com/$user/$name" -ForegroundColor Green
+Write-Host "Live (GitHub servers, ~2 min): https://$user.github.io/$name/" -ForegroundColor Green
+if (-not $Domain) { exit 0 }
+
+# 6. DNS records to add at your registrar
 Write-Host "Add these DNS records at your domain registrar:" -ForegroundColor Yellow
 if (($Domain.Split('.')).Count -le 2) {
   '185.199.108.153','185.199.109.153','185.199.110.153','185.199.111.153' | ForEach-Object { "  A     @    $_" }
