@@ -66,13 +66,16 @@ dialog::backdrop{background:rgba(15,23,42,.45);backdrop-filter:blur(2px)}
 .grp{margin-bottom:18px}
 .foot-note{font-size:12px;color:var(--mute);margin-top:28px}
 a{color:var(--a)}
+.picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.pick{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;cursor:pointer;font-weight:600;font-size:14px}
+.pick:has(input:checked){border-color:var(--a);background:var(--a2);color:var(--a)}
 </style>
 </head>
 <body>
 <div class="wrap">
 <div class="topbar">
   <div><h1>Data Pipeline Cost Calculator</h1><div class="sub">Pick an option per layer, see the monthly bill and where it can be cheaper.</div></div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bAdv">Advanced inputs</button><button class="btn" id="bAssume">Assumptions</button></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bStack">Stack</button><button class="btn" id="bAdv">Advanced inputs</button><button class="btn" id="bAssume">Assumptions</button></div>
 </div>
 
 <div class="hero">
@@ -101,6 +104,13 @@ a{color:var(--a)}
 </div>
 
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+<dialog id="stackDlg"><div class="dlg">
+  <header><div><h3>Which technology will you build on?</h3><div class="sub">Pick one or more — each layer will only offer options for your stack. Cloud-agnostic tools (Airflow, Kafka, Fivetran…) always show.</div></div></header>
+  <h4>Cloud</h4><div class="picks" id="pkCloud"></div>
+  <h4>Data platform</h4><div class="picks" id="pkPlat"></div>
+  <h4>Not decided yet?</h4><label class="pick"><input type="checkbox" id="pkAll"> Open to all — compare everything (up to 8 alternatives per layer)</label>
+  <div style="margin-top:20px;text-align:right"><button class="btn primary" id="stackGo">Show my options</button></div>
+</div></dialog>
 <dialog id="adv"><div class="dlg"><header><h3>Advanced inputs</h3><button class="close" aria-label="Close" onclick="adv.close()">×</button></header><div id="advBody"></div></div></dialog>
 
 <script id="engine">
@@ -203,13 +213,13 @@ const CATALOG = [
     cost:(I,X)=>{const nh=X.vcpuH/4;return{day:nh*(0.192*0.35+0.048), calc:`${f(nh,1)} node-h × ($0.192 EC2 × 35% spot + $0.048 EMR fee)`};}, tip:'Cheapest Spark on AWS; needs interruption-tolerant jobs.' },
   { id:'dataproc', name:'GCP Serverless for Apache Spark', cloud:'gcp', src:S.dataproc,
     cost:(I,X)=>({day:X.vcpuH*1.0*0.06, calc:`${f(X.vcpuH,1)} vCPU-h × 1 DCU (0.6 vCPU + 4 GB × 0.1) × $0.06`}), tip:'Premium tier ($0.089) only if you need faster shuffle.' },
-  { id:'dbxjobs', name:'Databricks Jobs (classic) + EC2', cloud:'any', est:true, src:S.dbx,
+  { id:'dbxjobs', vendor:'databricks', name:'Databricks Jobs (classic) + EC2', cloud:'any', est:true, src:S.dbx,
     cost:(I,X)=>({day:X.vcpuH*(0.25*0.15+0.048), calc:`${f(X.vcpuH,1)} vCPU-h × (0.25 DBU × $0.15 + $0.048 EC2)`}), tip:'Use Spot workers and Jobs (not All-Purpose) clusters.' },
-  { id:'dbxsls', name:'Databricks Jobs Serverless', cloud:'any', est:true, src:S.dbx,
+  { id:'dbxsls', vendor:'databricks', name:'Databricks Jobs Serverless', cloud:'any', est:true, src:S.dbx,
     cost:(I,X)=>({day:X.vcpuH*0.25*0.35, calc:`${f(X.vcpuH,1)} vCPU-h × 0.25 DBU × $0.35 (compute bundled)`}), tip:'No cluster idle time; check DBU burn in system tables.' },
-  { id:'snowstd', name:'Snowflake (Standard, $2/credit)', cloud:'any', src:S.snow,
+  { id:'snowstd', vendor:'snowflake', name:'Snowflake (Standard, $2/credit)', cloud:'any', src:S.snow,
     cost:(I,X)=>{const cr=X.vcpuH/8;return{day:cr*2, calc:`${f(X.vcpuH,1)} vCPU-h ÷ 8 ≈ ${f(cr,1)} credits × $2`};}, tip:'Auto-suspend 60s; right-size warehouses per job.' },
-  { id:'snowent', name:'Snowflake (Enterprise, $3/credit)', cloud:'any', src:S.snow,
+  { id:'snowent', vendor:'snowflake', name:'Snowflake (Enterprise, $3/credit)', cloud:'any', src:S.snow,
     cost:(I,X)=>{const cr=X.vcpuH/8;return{day:cr*3, calc:`${f(cr,1)} credits × $3`};}, tip:'Only pay Enterprise if you need multi-cluster / 90-day time travel.' },
   { id:'bq', name:'BigQuery on-demand (ELT SQL)', cloud:'gcp', src:S.bq,
     cost:(I,X)=>{const t=X.gbDay*X.scan/GiB;return{day:t*6.25, calc:`${f(t,2)} TiB scanned (${X.scan}× ingest) × $6.25/TiB`};}, tip:'Partition + cluster tables; switch to Editions slots past ~300-500 TiB/mo.' },
@@ -255,11 +265,11 @@ const CATALOG = [
     cost:(I)=>({day:I.queryTb*5, calc:`${f(I.queryTb,2)} TB scanned/day × $5/TB`}), tip:'No storage duplication; performance depends on file layout.' },
   { id:'bqwh', name:'BigQuery (on-demand)', cloud:'gcp', src:S.bq,
     cost:(I,X)=>({day:X.whGB*0.02/D+I.queryTb*0.9095*6.25, calc:`${f(X.whGB)} GB × $0.02/GB-mo + ${f(I.queryTb,2)} TB/day × $6.25/TiB`}), tip:'Long-term storage drops to $0.01/GB after 90 days untouched.' },
-  { id:'snowwh', name:'Snowflake Enterprise (Medium WH)', cloud:'any', src:S.snow,
+  { id:'snowwh', vendor:'snowflake', name:'Snowflake Enterprise (Medium WH)', cloud:'any', src:S.snow,
     cost:(I,X)=>({day:X.whGB/GiB*23/D+I.whHours*4*3, calc:`${f(X.whGB/GiB,1)} TB × $23/TB-mo + ${I.whHours} h × 4 credits × $3`}), tip:'Auto-suspend + Standard edition can cut ~33%.' },
   { id:'rss', name:'Redshift Serverless (8 RPU base)', cloud:'aws', src:S.rs,
     cost:(I,X)=>({day:X.whGB*0.024/D+I.whHours*8*0.375, calc:`${f(X.whGB)} GB × $0.024/GB-mo + ${I.whHours} h × 8 RPU × $0.375`}), tip:'Set max RPU limits; reserved capacity for steady use.' },
-  { id:'dbxsql', name:'Databricks SQL Serverless (Small)', cloud:'any', est:true, src:S.dbx,
+  { id:'dbxsql', vendor:'databricks', name:'Databricks SQL Serverless (Small)', cloud:'any', est:true, src:S.dbx,
     cost:(I,X)=>({day:X.whGB*0.023/D+I.whHours*12*0.70, calc:`${f(X.whGB)} GB lake × $0.023 + ${I.whHours} h × 12 DBU × $0.70`}), tip:'2X-Small (4 DBU/hr) is often enough for BI dashboards.' },
   { id:'synsls', name:'Synapse serverless SQL', cloud:'azure', est:true, src:S.synapse,
     cost:(I)=>({day:I.queryTb*5, calc:`${f(I.queryTb,2)} TB scanned/day × $5/TB`}), tip:'Same pay-per-scan model as Athena; optimise Parquet layout.' },
@@ -284,20 +294,26 @@ const CATALOG = [
  ]},
 ];
 
-function compute(I, choice) {
+// Tech stack filter. stack = null → open to all; else { clouds:['aws',…], platforms:['snowflake','databricks'] }.
+// Cloud-agnostic tools (cloud:'any', no vendor) always show; no cloud picked = any cloud allowed.
+const allowed = (o, st) => !st || ((o.cloud === 'any' || !st.clouds.length || st.clouds.includes(o.cloud)) && (!o.vendor || st.platforms.includes(o.vendor)));
+const optionsFor = (cat, st) => { const a = cat.options.filter(o => allowed(o, st)); return a.length ? a : cat.options; };
+
+function compute(I, choice, stack = null) {
   const X = derive(I);
   const lines = CATALOG.map(cat => {
-    const all = cat.options.map(o => ({ o, ...o.cost(I, X) }));
+    const all = optionsFor(cat, stack).map(o => ({ o, ...o.cost(I, X) }));
     const sel = all.find(a => a.o.id === choice[cat.id]) || all[0];
-    const pool = I.sameCloud ? all.filter(a => a.o.cloud === sel.o.cloud || a.o.cloud === 'any') : all;
-    const cheaper = pool.filter(a => a !== sel && a.day < sel.day - 1e-9).sort((a, b) => a.day - b.day).slice(0, 2);
-    return { cat, sel, cheaper };
+    const pool = (I.sameCloud ? all.filter(a => a.o.cloud === sel.o.cloud || a.o.cloud === 'any') : all).filter(a => a !== sel);
+    const ranked = pool.sort((a, b) => a.day - b.day).slice(0, stack ? 3 : 8); // open to all → up to 8 alternatives
+    const cheaper = ranked.filter(a => a.day < sel.day - 1e-9);
+    return { cat, sel, cheaper, ranked };
   });
   const day = lines.reduce((s, l) => s + l.sel.day, 0);
   const save = lines.reduce((s, l) => s + (l.cheaper[0] ? l.sel.day - l.cheaper[0].day : 0), 0);
   return { X, lines, day, month: day * D, saveMonth: save * D };
 }
-if (typeof module !== 'undefined') module.exports = { CATALOG, compute, derive, tiered };
+if (typeof module !== 'undefined') module.exports = { CATALOG, compute, derive, tiered, allowed, optionsFor };
 </script>
 
 <script>
@@ -316,7 +332,11 @@ const DEF = { ingest:'fivetran', stream:'kinesis', storage:'s3std', compute:'glu
 const COL = ['#4f46e5', '#0891b2', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777', '#2563eb', '#65a30d'];
 const $ = id => document.getElementById(id);
 const usd = (n, d = 0) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
-const chips = o => `<span class="chip">${o.cloud}</span>${o.est ? ' <span class="chip est">est.</span>' : ''}`;
+const chips = o => `<span class="chip">${o.cloud}</span>${o.vendor ? ` <span class="chip">${o.vendor}</span>` : ''}${o.est ? ' <span class="chip est">est.</span>' : ''}`;
+const CLOUDS = [['aws', 'AWS'], ['gcp', 'Google Cloud'], ['azure', 'Azure']], PLATS = [['snowflake', 'Snowflake'], ['databricks', 'Databricks']];
+let STACK = null; // null = open to all
+try { const v = localStorage.getItem('stack'); if (v && v !== 'all') STACK = JSON.parse(v); } catch { /* storage blocked → open to all */ }
+const stackLabel = () => STACK ? [...CLOUDS, ...PLATS].filter(([k]) => STACK.clouds.includes(k) || STACK.platforms.includes(k)).map(x => x[1]).join(' + ') || 'Any cloud' : 'Open to all';
 const short = c => c.label.replace(/^\d+\. /, '').replace(/ \(.*\)$/, '');
 const dlg = $('dlg'), adv = $('adv');
 
@@ -332,10 +352,36 @@ for (const [title, fs] of FIELDS) {
 }
 $('quick').innerHTML = quick;
 $('advBody').innerHTML = advHtml;
-$('layers').innerHTML = CATALOG.map((c, i) => `<div class="card layer">
+function renderLayers() {
+  $('layers').innerHTML = CATALOG.map((c, i) => {
+    const opts = optionsFor(c, STACK), cur = $('c_' + c.id)?.value;
+    const sel = [cur, DEF[c.id]].find(v => opts.some(o => o.id === v)) || opts[0].id; // keep choice if still allowed
+    return `<div class="card layer">
   <div class="top"><span class="name"><i class="dot" style="background:${COL[i]}"></i>${short(c)}</span><span class="cost" id="m_${c.id}"></span></div>
-  <select id="c_${c.id}" aria-label="${short(c)} option">${c.options.map(o => `<option value="${o.id}"${o.id === DEF[c.id] ? ' selected' : ''}>${o.name}</option>`).join('')}</select>
-  <div class="foot"><span id="s_${c.id}"></span><button class="btn link" data-details="${c.id}">Details →</button></div></div>`).join('');
+  <select id="c_${c.id}" aria-label="${short(c)} option">${opts.map(o => `<option value="${o.id}"${o.id === sel ? ' selected' : ''}>${o.name}</option>`).join('')}</select>
+  <div class="foot"><span id="s_${c.id}"></span><button class="btn link" data-details="${c.id}">Details →</button></div></div>`;
+  }).join('');
+  $('bStack').textContent = 'Stack: ' + stackLabel();
+}
+const pick = ([k, l], group) => `<label class="pick"><input type="checkbox" data-pk="${group}" value="${k}"${STACK && STACK[group].includes(k) ? ' checked' : ''}> ${l}</label>`;
+function openStack() {
+  $('pkCloud').innerHTML = CLOUDS.map(c => pick(c, 'clouds')).join('');
+  $('pkPlat').innerHTML = PLATS.map(p => pick(p, 'platforms')).join('');
+  $('pkAll').checked = !STACK;
+  $('stackDlg').showModal();
+}
+$('stackDlg').addEventListener('change', e => {
+  if (e.target.id === 'pkAll' && e.target.checked) document.querySelectorAll('[data-pk]').forEach(x => x.checked = false);
+  if (e.target.dataset.pk && e.target.checked) $('pkAll').checked = false;
+});
+$('stackGo').onclick = () => {
+  const got = g => [...document.querySelectorAll(`[data-pk="${g}"]:checked`)].map(x => x.value);
+  const st = { clouds: got('clouds'), platforms: got('platforms') };
+  STACK = $('pkAll').checked || (!st.clouds.length && !st.platforms.length) ? null : st; // nothing picked = open to all
+  try { localStorage.setItem('stack', STACK ? JSON.stringify(STACK) : 'all'); } catch { }
+  renderLayers(); run(); $('stackDlg').close();
+};
+renderLayers();
 
 let last, inputs, mode;
 function read() {
@@ -354,7 +400,7 @@ function read() {
 function run() {
   const r = read(); if (!r) return;
   inputs = r.I;
-  const R = last = compute(r.I, r.choice);
+  const R = last = compute(r.I, r.choice, STACK);
   $('kMonth').textContent = usd(R.month); $('kDay').textContent = usd(R.day, 2);
   $('bSave').textContent = R.saveMonth > 0.5 ? `Save up to ${usd(R.saveMonth)}/mo →` : 'Already the cheapest mix';
   $('bSave').disabled = R.saveMonth <= 0.5;
@@ -373,18 +419,19 @@ function open(title, sub, body) {
   if (!dlg.open) dlg.showModal();
 }
 const altRow = (label, a, saveDay, catId) => `<div class="alt"><div><div class="t">${label}</div><div class="n">${a.o.name} ${chips(a.o)}</div><div class="t">${a.o.tip}</div></div>
-  <div class="r"><b>${usd(a.day * D)}/mo</b><span class="chip save">−${usd(saveDay * D)}/mo</span><br><button class="btn" style="margin-top:8px" data-switch="${catId}:${a.o.id}">Switch</button></div></div>`;
+  <div class="r"><b>${usd(a.day * D)}/mo</b>${saveDay > 1e-9 ? `<span class="chip save">−${usd(saveDay * D)}/mo</span>` : `<span class="chip est">+${usd(-saveDay * D)}/mo</span>`}<br><button class="btn" style="margin-top:8px" data-switch="${catId}:${a.o.id}">Switch</button></div></div>`;
 
 function details(id) {
   mode = 'details';
-  const { cat, sel, cheaper } = last.lines.find(l => l.cat.id === id);
+  const { cat, sel, ranked } = last.lines.find(l => l.cat.id === id);
+  const pct = a => Math.round(100 * Math.abs(1 - a.day / (sel.day || 1)));
   const share = last.day ? Math.round(100 * sel.day / last.day) : 0;
   open(sel.o.name, short(cat) + ' · ' + chips(sel.o), `
     <dl class="kv"><dt>Per day</dt><dd>${usd(sel.day, 2)}</dd><dt>Per month</dt><dd>${usd(sel.day * D)}</dd><dt>Share of total</dt><dd>${share}%</dd></dl>
     <h4>How it's calculated</h4><div class="formula">${sel.calc}</div>
     <p class="tip">Tip: ${sel.o.tip}${sel.o.src ? ` · <a href="${sel.o.src}" target="_blank" rel="noopener">pricing page</a>` : ''}</p>
-    <h4>Cheaper alternatives${inputs.sameCloud ? ' (same cloud)' : ''}</h4>
-    ${cheaper.length ? cheaper.map(a => altRow(`${Math.round(100 * (1 - a.day / (sel.day || 1)))}% cheaper`, a, sel.day - a.day, cat.id)).join('') : '<p class="tip" style="margin-top:0">✓ Already the cheapest option in this layer.</p>'}`);
+    <h4>${STACK ? `Alternatives in your stack (${stackLabel()})` : 'All alternatives, cheapest first'}${inputs.sameCloud ? ' · same cloud' : ''}</h4>
+    ${ranked.length ? ranked.map(a => altRow(a.day < sel.day - 1e-9 ? `${pct(a)}% cheaper` : `${pct(a)}% more`, a, sel.day - a.day, cat.id)).join('') : '<p class="tip" style="margin-top:0">No other options in your stack for this layer.</p>'}`);
 }
 function savings() {
   mode = 'savings';
@@ -419,7 +466,9 @@ document.addEventListener('input', e => { if (e.target.matches('[data-f],[id^=c_
 $('bAdv').onclick = () => adv.showModal();
 $('bAssume').onclick = assumptions;
 $('bSave').onclick = savings;
+$('bStack').onclick = openStack;
 run();
+openStack(); // ask for the tech stack on every visit (previous answer pre-selected)
 </script>
 </body>
 </html>

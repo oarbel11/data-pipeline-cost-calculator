@@ -30,4 +30,13 @@ compute({ ...I, sameCloud: true }, choice).lines.forEach(l => l.cheaper.forEach(
 // every option returns finite numbers with 10% streaming
 const R2 = compute({ ...I, streamPct: 10 }, choice);
 for (const c of CATALOG) for (const o of c.options) { const r = o.cost({ ...I, streamPct: 10 }, R2.X); assert(Number.isFinite(r.day) && r.day >= 0, o.id); }
+// stack filter: AWS-only hides other clouds + vendor platforms; Snowflake-only keeps every cloud but no Databricks
+const awsOnly = { clouds: ['aws'], platforms: [] };
+compute(I, choice, awsOnly).lines.forEach(l => [l.sel, ...l.ranked].forEach(a => { assert(['aws', 'any'].includes(a.o.cloud)); assert(!a.o.vendor); }));
+const snow = compute(I, { ...choice, wh: 'snowwh' }, { clouds: [], platforms: ['snowflake'] });
+assert(snow.lines.find(l => l.cat.id === 'wh').sel.o.id === 'snowwh');
+snow.lines.forEach(l => [l.sel, ...l.ranked].forEach(a => assert(a.o.vendor !== 'databricks')));
+assert(compute(I, choice, awsOnly).lines.every(l => l.ranked.length <= 3));
+// open to all → up to 8 alternatives (processing has 14 options)
+assert.strictEqual(line('compute').ranked.length, 8);
 console.log('ok — 1 TB/day sample:', '$' + R.day.toFixed(2) + '/day', '$' + R.month.toFixed(0) + '/mo');
