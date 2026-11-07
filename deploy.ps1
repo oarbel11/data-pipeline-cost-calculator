@@ -19,7 +19,7 @@ foreach ($t in $pkgs.Keys) {
 }
 
 # 3. Log in to GitHub (opens browser — you click Authorize)
-gh auth status 2>$null
+cmd /c "gh auth status >nul 2>&1"   # cmd wrapper: PS 5.1 throws on redirected native stderr
 if ($LASTEXITCODE -ne 0) { gh auth login --web --hostname github.com --git-protocol https }
 gh auth setup-git
 $user = gh api user -q .login
