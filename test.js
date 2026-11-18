@@ -6,7 +6,7 @@ const { CATALOG, compute, tiered } = m.exports;
 
 const I = { tbDay: 1, retention: 90, compression: 3, copies: 1.5, rowBytes: 500, complexity: 'medium', streamPct: 0,
   runsDay: 24, steps: 10, inv: 10000, sec: 5, mem: 0.5, curatedPct: 30, queryTb: 1, whHours: 8,
-  egressGb: 50, xregionGb: 0, logsGb: 5, sameCloud: false };
+  egressGb: 50, xregionGb: 0, logsGb: 5, sameCloud: false, taskMin: 3, connectors: 5, tables: 200, seats: 3, snowCredit: 3 };
 const choice = { ingest: 'custom', stream: 'kinesis', storage: 's3std', compute: 'glue', scripts: 'lambda', orch: 'mwaas', wh: 'none', net: 'aws', mon: 'cw' };
 const R = compute(I, choice);
 const line = id => R.lines.find(l => l.cat.id === id);
@@ -18,9 +18,9 @@ near(tiered(60000, [[51200, 0.023], [Infinity, 0.022]]), 51200 * 0.023 + 8800 * 
 near(line('storage').sel.day, 46080 * 0.023 / 30.4);
 // glue: 1024/15 vCPU-h /4 DPU × 0.44
 near(line('compute').sel.day, 1024 / 15 / 4 * 0.44);
-near(line('orch').sel.day, 0.49 * 24);
+near(line('orch').sel.day, 0.49 * 24 + 0.10 * 10 / 30.4); // env-hr + metadata storage
 near(line('stream').sel.day, 0);                        // no streaming → zero, incl. fixed stream-hour
-near(line('net').sel.day, 50 * 0.09);
+near(line('net').sel.day, (50 * 30.4 - 100) * 0.09 / 30.4); // 100 GB/mo free tier
 near(R.month, R.day * 30.4);
 // suggestions are strictly cheaper and sorted
 for (const l of R.lines) { l.cheaper.forEach(c => assert(c.day < l.sel.day)); if (l.cheaper[1]) assert(l.cheaper[0].day <= l.cheaper[1].day); }
