@@ -1,0 +1,15 @@
+# DataPipeCal – Data Pipeline Cost Calculator
+
+> Free web calculator that estimates the monthly cost of a data pipeline, layer by layer, across AWS, GCP, Azure, Snowflake, Databricks and 300+ tools, using US-East on-demand list prices (updated 18 Nov 2026). For data engineers, architects and FinOps teams comparing ingestion, streaming, lake storage, Spark/SQL processing, functions, orchestration, warehouse, egress, logging, data quality and catalog options.
+
+## Pages
+
+- [Calculator](https://datapipecal.com/): enter TB/day, retention, complexity and job counts; pick one option per layer; see $/day, $/month, the formula behind each line and the cheapest alternatives that fit your stack.
+- [FAQ](https://datapipecal.com/#faq): typical pipeline cost at 1 TB/day, Glue vs EMR vs Databricks vs Dataproc per vCPU-hour, cheapest object storage, Snowflake vs Databricks, pricing sources.
+- [Source code](https://github.com/oarbel11/data-pipeline-cost-calculator): open-source single-page app; the price catalog lives in index.html.
+
+## Key facts
+
+- 11 layers, 306 priced options; each cites its vendor pricing page; quote-only vendors marked "est."
+- Example: 1 TB/day on AWS (DMS, S3 Standard, Glue 5.x, Lambda, MWAA Small, Athena, CloudWatch) ≈ $2,000/month at list prices.
+- Stack filter limits options to chosen clouds/platforms; "Open to all" shows up to 8 ranked alternatives per layer.

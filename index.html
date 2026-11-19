@@ -3,7 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Data Pipeline Cost Calculator</title>
+<title>Data Pipeline Cost Calculator – AWS, GCP, Azure, Snowflake, Databricks</title>
+<meta name="description" content="Free data pipeline cost calculator: estimate monthly cost per layer (ingestion, streaming, storage, Spark, orchestration, warehouse, egress, logs) across AWS, GCP, Azure, Snowflake, Databricks and 300+ options, with the formula and cheaper alternatives.">
+<link rel="canonical" href="https://datapipecal.com/">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DataPipeCal">
+<meta property="og:title" content="Data Pipeline Cost Calculator – AWS, GCP, Azure, Snowflake, Databricks">
+<meta property="og:description" content="Estimate what your data pipeline costs per month, layer by layer, and see cheaper alternatives. 306 priced options, US list prices, formulas shown.">
+<meta property="og:url" content="https://datapipecal.com/">
+<meta property="og:image" content="https://datapipecal.com/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Data Pipeline Cost Calculator – monthly cost by layer across AWS, GCP, Azure and SaaS tools">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Data Pipeline Cost Calculator">
+<meta name="twitter:description" content="Monthly data pipeline cost by layer across AWS, GCP, Azure, Snowflake, Databricks – with formulas and cheaper alternatives.">
+<meta name="twitter:image" content="https://datapipecal.com/og.png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+ {"@type":"WebSite","@id":"https://datapipecal.com/#website","url":"https://datapipecal.com/","name":"DataPipeCal – Data Pipeline Cost Calculator","inLanguage":"en"},
+ {"@type":"SoftwareApplication","@id":"https://datapipecal.com/#app","name":"Data Pipeline Cost Calculator","url":"https://datapipecal.com/","applicationCategory":"DeveloperApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Free calculator that estimates the monthly cost of a data pipeline per layer – ingestion, streaming, lake storage, processing, functions, orchestration, warehouse, egress, logs, data quality and catalog – across AWS, GCP, Azure, Snowflake, Databricks and 300+ options, showing the formula and cheaper alternatives.","author":{"@type":"Person","name":"Omer Arbel"},"dateModified":"2026-11-18"},
+ {"@type":"FAQPage","mainEntity":[
+  {"@type":"Question","name":"How much does a data pipeline cost per month?","acceptedAnswer":{"@type":"Answer","text":"A 1 TB/day pipeline on AWS with Glue, S3, Lambda, MWAA and Athena costs about $2,000 per month at US list prices; the same volume on Fivetran plus a Snowflake Medium warehouse costs tens of thousands. Use the calculator to price your own volume, retention and tool choices."}},
+  {"@type":"Question","name":"Which is cheaper for Spark: AWS Glue, EMR Serverless, Databricks or Dataproc?","acceptedAnswer":{"@type":"Answer","text":"Per vCPU-hour at list price: EMR on EC2 Spot (~$0.024) < Dataproc Serverless ($0.06) ≈ EMR Serverless (~$0.076 with 4 GB RAM) < Databricks Jobs classic (~$0.074 incl. EC2) < AWS Glue 6.0 ($0.077) < Glue 5.x ($0.11) < Databricks Serverless (~$0.06 DBU-only but higher DBU emission). Spot and Graviton change the ranking; the calculator shows the formula for each."}},
+  {"@type":"Question","name":"What is the cheapest data lake storage?","acceptedAnswer":{"@type":"Answer","text":"For hot data: Backblaze B2 ($6.95/TB-month), Wasabi ($7.99/TB) and Cloudflare R2 ($15/TB, free egress) are cheaper than S3 Standard ($23/TB), GCS Standard ($20/TB) and Azure Blob Hot ($20.8/TB). For cold data, S3 Glacier Instant Retrieval, GCS Coldline and Azure Cold are about $4/TB-month with retrieval fees."}},
+  {"@type":"Question","name":"Is Snowflake or Databricks cheaper?","acceptedAnswer":{"@type":"Answer","text":"It depends on workload shape. Snowflake bills credits per warehouse-hour ($2–4/credit, 1 credit/hour for X-Small); Databricks bills DBUs ($0.15 Jobs, $0.35 serverless, $0.70 SQL serverless) plus cloud VMs for classic compute. For scheduled Spark jobs Databricks Jobs compute is usually cheaper; for BI on curated data a small Snowflake warehouse with auto-suspend is often cheaper. The calculator compares both for your inputs."}},
+  {"@type":"Question","name":"Where do the prices come from?","acceptedAnswer":{"@type":"Answer","text":"US-East on-demand list prices taken from vendor pricing pages and the Azure Retail Prices API on 18 November 2026, without discounts, commitments or free tiers unless stated. Quote-only vendors are marked as estimates."}}
+ ]}
+]}
+</script>
 <style>
 :root{color-scheme:light;--bg:#f6f7fb;--card:#fff;--line:#e6e8ef;--ink:#0f172a;--mute:#64748b;--a:#4f46e5;--a2:#eef2ff;--g:#047857;--g2:#ecfdf5;--amb:#b45309;--amb2:#fef3c7;--r:14px}
 *{box-sizing:border-box}
@@ -68,6 +100,7 @@ dialog::backdrop{background:rgba(15,23,42,.45);backdrop-filter:blur(2px)}
 .ad::before{content:"Sponsored";position:absolute;top:8px;left:12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8}
 .ad ins{display:block;width:100%}
 .ad.inline{margin:0;min-height:0}
+details{padding:8px 0;border-top:1px solid var(--line)}details:first-of-type{border-top:0}summary{cursor:pointer;font-size:14px}details .tip{margin:8px 0 4px}
 .foot-note{font-size:12px;color:var(--mute);margin-top:28px}
 a{color:var(--a)}
 .picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
@@ -76,7 +109,7 @@ a{color:var(--a)}
 </style>
 </head>
 <body>
-<div class="wrap">
+<main class="wrap">
 <div class="topbar">
   <div><h1>Data Pipeline Cost Calculator</h1><div class="sub">Pick an option per layer, see the monthly bill and where it can be cheaper.</div></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bStack">Stack</button><button class="btn" id="bAdv">Advanced inputs</button><button class="btn" id="bAssume">Assumptions</button></div>
@@ -108,8 +141,19 @@ a{color:var(--a)}
 
 <div class="ad" data-ad="bottom"></div>
 
+<section class="card" id="faq" style="margin-top:28px">
+  <h2>Frequently asked questions</h2>
+  <p class="sub" style="margin:0 0 14px">DataPipeCal is a free data pipeline cost calculator for data engineers: it prices each layer of a pipeline across AWS, GCP, Azure, Snowflake, Databricks and 300+ tools, shows the formula, and suggests cheaper alternatives.</p>
+  <details><summary><b>How much does a data pipeline cost per month?</b></summary><p class="tip">A 1 TB/day pipeline on AWS with Glue, S3, Lambda, MWAA and Athena is about $2,000/month at US list prices. The same volume through Fivetran into a Snowflake Medium warehouse runs to tens of thousands. Change the inputs above to price your own volume, retention and tools.</p></details>
+  <details><summary><b>Which is cheaper for Spark: Glue, EMR, Databricks or Dataproc?</b></summary><p class="tip">Per vCPU-hour at list price: EMR on EC2 Spot (~$0.024) &lt; Dataproc Serverless ($0.06) ≈ EMR Serverless (~$0.076 with 4 GB RAM) ≈ Databricks Jobs classic (~$0.074 incl. EC2) &lt; Glue 6.0 ($0.077) &lt; Glue 5.x ($0.11). Spot, Graviton and Photon change the ranking — open any option's details for the exact formula.</p></details>
+  <details><summary><b>What is the cheapest data lake storage?</b></summary><p class="tip">Hot data: Backblaze B2 ($6.95/TB-mo), Wasabi ($7.99/TB) and Cloudflare R2 ($15/TB, free egress) undercut S3 Standard ($23/TB), GCS Standard ($20/TB) and Azure Blob Hot ($20.8/TB). Cold data: S3 Glacier Instant Retrieval, GCS Coldline and Azure Cold are ~$4/TB-mo plus retrieval fees.</p></details>
+  <details><summary><b>Is Snowflake or Databricks cheaper?</b></summary><p class="tip">Snowflake bills credits per warehouse-hour ($2–4/credit); Databricks bills DBUs ($0.15 Jobs, $0.35 serverless, $0.70 SQL serverless) plus VMs for classic compute. Scheduled Spark jobs are usually cheaper on Databricks Jobs compute; BI on curated data is often cheaper on a small auto-suspending Snowflake warehouse. Pick both in the Stack dialog to compare on your numbers.</p></details>
+  <details><summary><b>How are costs calculated?</b></summary><p class="tip">Your inputs (TB/day, retention, compression, complexity, runs, invocations, query volume…) are turned into derived quantities — GB stored, vCPU-hours, rows, stream MB/s — and each option applies its vendor's unit prices to those. Every line shows its formula; "est." marks quote-only or unrendered prices.</p></details>
+  <details><summary><b>Where do the prices come from and how fresh are they?</b></summary><p class="tip">US-East on-demand list prices from vendor pricing pages and the Azure Retail Prices API, collected 18 November 2026, with no discounts, commitments or free tiers unless stated. Each option links to its source page. Prices change — verify before committing budget.</p></details>
+  <p class="sub" style="margin-top:16px">Built and maintained by <a href="https://github.com/oarbel11" rel="author">Omer Arbel</a>, data engineer. Open source on <a href="https://github.com/oarbel11/data-pipeline-cost-calculator">GitHub</a> — corrections welcome. Last price update: <time datetime="2026-11-18">18 Nov 2026</time>.</p>
+</section>
 <p class="foot-note">US-region on-demand list prices researched 18 Nov 2026 from vendor pricing pages, no free tiers, discounts or commitments. <span class="chip est">est.</span> marks low-confidence or contract-dependent prices. Verify on the vendor pricing pages (linked in each layer's details) before committing budget.</p>
-</div>
+</main>
 
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <dialog id="stackDlg"><div class="dlg">
